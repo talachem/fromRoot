@@ -182,12 +182,14 @@ loadFromRoot.stack('xPosition', 'yPosition', 'zPosition', toKey: 'position')
 You will need to the [wheel](https://pypi.org/project/wheel/) and [setuptools](https://pypi.org/project/setuptools/) packages of python in order to install
 Download the repo, navigate in the terminal to the folder and run the following script:
 
-```bash
-python3 setup.py sdist
+```zsh
+ pip3 install .
 ```
 
-and then:
+or
 
-```bash
-pip3 install .
+```zsh
+pip install .
 ```
+
+It depends on how python and/or your `PATH` is configured.
