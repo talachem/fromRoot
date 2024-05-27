@@ -56,3 +56,79 @@ def extractMatrix(matrixLadder: np.ndarray, uCellID: int, vCellID: int, eventNum
     seedVGlobal = seedChargePos[1] + vLower
 
     return matrix, globalUPositions, globalVPositions, seedUGlobal, seedVGlobal
+
+
+def genLadder(uCells, vCells, charges, size=(250,768)):
+    ladder = np.zeros(size, dtype=int)
+    ladder[uCells, vCells] = charges
+    return ladder
+
+
+def genCluster(uCells, vCells, charges, size=(250,786)):
+    """
+    this function uses recursion to find clusters. first it generates the whole ladder
+    and then it traveses, using recursion, the ladder to find all connected pixels
+    the output format is a bit stupid and I apologize for that.
+    the first index counts the cluster, the first/second coloumn are u/v cells
+    and the last coloumn are the charges
+    """
+    ladder = genLadder(uCells, vCells, charges, size)
+    # Initialize list to keep track of the clusters
+    clusters = []
+    # Set to keep track of visited cells to avoid infinite loops
+    visited = set()
+
+    def travel(uCell, vCell, current_cluster):
+        # Check bounds
+        if uCell < 0 or uCell >= ladder.shape[0] or vCell < 0 or vCell >= ladder.shape[1]:
+            return
+        # Check if the cell is empty or already visited
+        if ladder[uCell, vCell] == 0 or (uCell, vCell) in visited:
+            return
+        # Mark the cell as visited
+        visited.add((uCell, vCell))
+        # Add the cell to the cluster
+        current_cluster.append([uCell, vCell, ladder[uCell, vCell]])
+        # Explore all four directions
+        travel(uCell, vCell + 1, current_cluster)
+        travel(uCell, vCell - 1, current_cluster)
+        travel(uCell + 1, vCell, current_cluster)
+        travel(uCell - 1, vCell, current_cluster)
+
+    # Iterate over the given non-zero indices
+    for u, v in zip(uCells, vCells):
+        if ladder[u, v] != 0 and (u, v) not in visited:
+            current_cluster = []
+            travel(u, v, current_cluster)
+            if current_cluster:
+                clusters.append(current_cluster)
+
+    return clusters
+
+
+def genMatrices(clusters, size=(9,9)):
+    num_clusters = len(clusters)
+    matrices = np.zeros((num_clusters, *size), dtype=int)
+
+    for i, cluster in enumerate(clusters):
+        current = np.array(cluster)
+        maxIndex = np.argmax(current[:, 2])
+
+        # Coordinates of the cell with the maximum charge
+        max_u, max_v = current[maxIndex, 0], current[maxIndex, 1]
+
+        # Calculate offsets to center the maximum charge cell
+        offset_u = int(size[0]/2) - max_u
+        offset_v = int(size[1]/2) - max_v
+
+        # Apply offsets and filter cells that fall within the 9x9 matrix bounds
+        new_coords = current[:, :2] + [offset_u, offset_v]
+        valid_coords = (new_coords[:, 0] >= 0) & (new_coords[:, 0] < size[0]) & \
+                       (new_coords[:, 1] >= 0) & (new_coords[:, 1] < size[1])
+
+        new_coords = new_coords[valid_coords]
+        charges = current[valid_coords, 2]
+
+        matrices[i, new_coords[:, 0], new_coords[:, 1]] = charges
+
+    return matrices

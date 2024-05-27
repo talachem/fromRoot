@@ -2,7 +2,7 @@ from collections import defaultdict
 import numpy as np
 from numpy.typing import ArrayLike
 from uproot import TTree
-from ..common import extractMatrix
+from ..common import extractMatrix, genCluster
 
 
 class ClustersFromDigits:
@@ -179,62 +179,64 @@ class ClustersFromDigits:
         Returns:
         - dict: A dictionary containing processed data.
         """
-        # Initialize variables
+
         eventNumbers = []
+        clsCharges, seedCharges = [], []
+        clsSizes, uSizes, vSizes = [], [], []
         uPositions, vPositions = [], []
-        uSizes, vSizes, clsSizes = [], [], []
-        uCells, vCells, cCharges = [], [], []
-        seedCharges, clsCharges = [], []
         sensorIDs = []
+        uCellses, vCellsess, cellChargeses = [], [], []
 
-        matrixLadder = np.zeros((40, 250, 768))
-        # Loop through each cell charge to populate matrices and process data
         for i in range(len(sensorIDsAllEvents)):
-            sensorID = sensorIDsAllEvents[i]
-            if len(sensorID) == 0:
-                continue
-            # Initialize and populate the matrix
-            uuIDs, vvIDs = uCellIDsAllEvents[i], vCellIDsAllEvents[i]
-            depth = [self.panelIDtoDepth[id] for id in sensorID]
-            matrixLadder[depth, uuIDs, vvIDs] = cellChargesAllEvents[i]
+            uCells = uCellIDsAllEvents[i]
+            vCells = vCellIDsAllEvents[i]
+            charges = cellChargesAllEvents[i]
+            sensors = sensorIDsAllEvents[i]
 
-            # checking if no pixels overlap
-            assert len(vvIDs) == len(sensorID), f"event: {i}, vvIDs: {len(vvIDs)}, sensorID: {len(sensorID)}"
-            assert len(uuIDs) == len(sensorID), f"event: {i}, uuIDs: {len(uuIDs)}, sensorID: {len(sensorID)}"
-            #print(i, len(sensorID), len(cellCharges))
+            for sensor in self.panelIDs:
+                uCellIDs = uCells[sensors == sensor]
+                vCellIDs = vCells[sensors == sensor]
+                cellCharges = charges[sensors == sensor]
 
-            # here I store all pixels, that have already been visited
-            knownPixels = {id: set() for id in self.panelIDs}
-
-            for j, (x, y, id) in enumerate(zip(uuIDs, vvIDs, sensorID)):
-                if (x, y) in knownPixels[id]:
+                if len(cellCharges) == 0:
                     continue
 
-                eventNumbers.append(i)
-                sensorIDs.append(id)
+                # the data format/structure is a bit weird, but fear not
+                # for I will resort it, to make is useable and senseable
+                clusters = genCluster(uCellIDs, vCellIDs, cellCharges)
 
-                matrix, globalUPositions, globalVPositions, seedUGlobal, seedVGlobal = extractMatrix(matrixLadder[self.panelIDtoDepth[id]], x, y, eventNumber = (i,j))
+                for cluster in clusters:
+                    cluster = np.array(cluster)
+                    uCell = cluster[:,0]
+                    vCell = cluster[:,1]
+                    cCharge = cluster[:,2]
 
-                cCharges.append(matrix[np.nonzero(matrix)].astype(int))
-                vCells.append(globalUPositions)
-                uCells.append(globalVPositions)
+                    seedCharge = cCharge.max()
+                    clsCharge = cCharge.sum()
 
-                seedChargePos = np.unravel_index(matrix.argmax(), matrix.shape)
-                seedCharges.append(matrix[seedChargePos[0],seedChargePos[1]].astype(int))
-                clsCharges.append(np.sum(matrix).astype(int))
-                clsSizes.append(np.count_nonzero(matrix))
-                uSizes.append(len(np.nonzero(matrix.sum(0))))
-                vSizes.append(len(np.nonzero(matrix.sum(1))))
+                    uSize = len(np.unique(uCell))
+                    vSize = len(np.unique(vCell))
+                    clsSize = len(cCharge)
 
-                # Update knownPixels with the global coordinates of the non-zero pixels
-                knownPixels[id].update(zip(globalUPositions, globalVPositions))
+                    uSeed = uCell[np.argmax(cCharge)]
+                    vSeed = vCell[np.argmax(cCharge)]
+                    uPosition, vPosition = self._pixelToUV((uSeed, vSeed), sensor)
 
-                # Append these global (u, v) positions to their respective lists
-                uPosition, vPosition = self._pixelToUV((seedUGlobal, seedVGlobal), id)
-                uPositions.append(uPosition)
-                vPositions.append(vPosition)
+                    eventNumbers.append(i)
+                    clsCharges.append(clsCharge)
+                    seedCharges.append(seedCharge)
 
-            matrixLadder[depth, uuIDs, vvIDs] = 0
+                    clsSizes.append(clsSize)
+                    uSizes.append(uSize)
+                    vSizes.append(vSize)
+
+                    uPositions.append(uPosition)
+                    vPositions.append(vPosition)
+
+                    sensorIDs.append(sensor)
+                    uCellses.append(uCell)
+                    vCellsess.append(vCell)
+                    cellChargeses.append(cCharge)
 
         return {
             'eventNumber': np.array(eventNumbers).astype(int),
@@ -246,7 +248,7 @@ class ClustersFromDigits:
             'uPosition': np.array(uPositions),
             'vPosition': np.array(vPositions),
             'sensorID': np.array(sensorIDs).astype(int),
-            'uCellIDs': np.array(uCells, dtype=object),
-            'vCellIDs': np.array(vCells, dtype=object),
-            'cellCharges': np.array(cCharges, dtype=object)
+            'uCellIDs': np.array(uCellses, dtype=object),
+            'vCellIDs': np.array(vCellsess, dtype=object),
+            'cellCharges': np.array(cellChargeses, dtype=object)
         }
